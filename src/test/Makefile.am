@@ -652,6 +652,32 @@ ceph_test_cls_log_LDADD = $(LIBRADOS) libcls_log_client.a $(UNITTEST_LDADD) $(CE
 ceph_test_cls_log_CXXFLAGS = $(UNITTEST_CXXFLAGS)
 bin_DEBUGPROGRAMS += ceph_test_cls_log
 
+CLANG=clang
+LLVM_TEST_C=test/cls_llvm/test_lib.cc
+LLVM_TEST_BC=test/cls_llvm/test_lib.bc
+LLVM_TEST_H=test/cls_llvm/test_lib.h
+
+EXTRA_DIST += $(LLVM_TEST_C)
+BUILT_SOURCES += $(LLVM_TEST_H) $(LLVM_TEST_BC)
+CLEANFILES += $(LLVM_TEST_H) $(LLVM_TEST_BC)
+
+txt2str_SOURCES = test/cls_llvm/txt2str.cc
+noinst_PROGRAMS += txt2str
+
+$(LLVM_TEST_H): $(LLVM_TEST_BC) txt2str
+	$(top_builddir)/src/txt2str cls_llvm_test_lib < $(LLVM_TEST_BC) > $@
+
+$(LLVM_TEST_BC): $(LLVM_TEST_C)
+	$(CLANG) -Wall -emit-llvm -c $< -o $@
+
+ceph_test_cls_llvm_SOURCES = \
+	test/cls_llvm/test_cls_llvm.cc \
+	test/librados/test.cc \
+	$(LLVM_TEST_H)
+ceph_test_cls_llvm_LDADD = $(LIBRADOS) libcls_llvm_client.a $(UNITTEST_LDADD) $(CEPH_GLOBAL)
+ceph_test_cls_llvm_CXXFLAGS = $(UNITTEST_CXXFLAGS)
+bin_DEBUGPROGRAMS += ceph_test_cls_llvm
+
 ceph_test_cls_statelog_SOURCES = \
 	test/cls_statelog/test_cls_statelog.cc \
 	test/librados/test.cc
