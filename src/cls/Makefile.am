@@ -52,6 +52,15 @@ libcls_rgw_la_LIBADD = libjson_spirit.la $(PTHREAD_LIBS) $(EXTRALIBS)
 libcls_rgw_la_LDFLAGS = ${AM_LDFLAGS} -version-info 1:0:0 -export-symbols-regex '.*__cls_.*'
 radoslib_LTLIBRARIES += libcls_rgw.la
 
+LLVM_LIBS = -lLLVMAsmParser -lLLVMInstrumentation -lLLVMLinker -lLLVMArchive -lLLVMBitReader -lLLVMDebugInfo -lLLVMJIT -lLLVMipo -lLLVMVectorize -lLLVMBitWriter -lLLVMTableGen -lLLVMHexagonCodeGen -lLLVMHexagonAsmPrinter -lLLVMHexagonDesc -lLLVMHexagonInfo -lLLVMPTXCodeGen -lLLVMPTXDesc -lLLVMPTXInfo -lLLVMPTXAsmPrinter -lLLVMMBlazeAsmParser -lLLVMMBlazeCodeGen -lLLVMMBlazeDisassembler -lLLVMMBlazeDesc -lLLVMMBlazeInfo -lLLVMMBlazeAsmPrinter -lLLVMCppBackendCodeGen -lLLVMCppBackendInfo -lLLVMMSP430CodeGen -lLLVMMSP430Desc -lLLVMMSP430AsmPrinter -lLLVMMSP430Info -lLLVMXCoreCodeGen -lLLVMXCoreDesc -lLLVMXCoreInfo -lLLVMCellSPUCodeGen -lLLVMCellSPUDesc -lLLVMCellSPUInfo -lLLVMMipsAsmParser -lLLVMMipsCodeGen -lLLVMMipsDesc -lLLVMMipsAsmPrinter -lLLVMMipsDisassembler -lLLVMMipsInfo -lLLVMARMDisassembler -lLLVMARMAsmParser -lLLVMARMCodeGen -lLLVMARMDesc -lLLVMARMAsmPrinter -lLLVMARMInfo -lLLVMPowerPCCodeGen -lLLVMPowerPCDesc -lLLVMPowerPCInfo -lLLVMPowerPCAsmPrinter -lLLVMSparcCodeGen -lLLVMSparcDesc -lLLVMSparcInfo -lLLVMX86Disassembler -lLLVMX86CodeGen -lLLVMSelectionDAG -lLLVMAsmPrinter -lLLVMX86AsmParser -lLLVMX86Desc -lLLVMX86Info -lLLVMX86AsmPrinter -lLLVMX86Utils -lLLVMMCDisassembler -lLLVMMCParser -lLLVMInterpreter -lLLVMCodeGen -lLLVMScalarOpts -lLLVMInstCombine -lLLVMTransformUtils -lLLVMipa -lLLVMAnalysis -lLLVMMCJIT -lLLVMRuntimeDyld -lLLVMExecutionEngine -lLLVMTarget -lLLVMMC -lLLVMObject -lLLVMCore -lLLVMSupport
+LLVM_LDFLAGS = -L/usr/lib/llvm-3.1/lib  -lpthread -lffi -ldl -lm
+LLVM_CXXFLAGS = -I/usr/lib/llvm-3.1/include  -DNDEBUG -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -g -O2 -fomit-frame-pointer -fvisibility-inlines-hidden -fPIC -Woverloaded-virtual
+
+libcls_llvm_la_SOURCES = cls/llvm/cls_llvm.cc
+libcls_llvm_la_CXXFLAGS = $(LLVM_CXXFLAGS) $(AM_CXXFLAGS)
+libcls_llvm_la_LDFLAGS = $(LLVM_LDFLAGS) $(LLVM_LIBS) ${AM_LDFLAGS} -version-info 1:0:0 -export-symbols-regex '.*__cls_.*'
+radoslib_LTLIBRARIES += libcls_llvm.la
+
 ## Rados object client classes
 
 libcls_lock_client_la_SOURCES = \
@@ -95,6 +104,8 @@ DENCODER_DEPS += libcls_rgw_client.la
 libcls_rbd_client_la_SOURCES = cls/rbd/cls_rbd_client.cc
 noinst_LTLIBRARIES += libcls_rbd_client.la
 
+libcls_llvm_client_a_SOURCES = cls/llvm/cls_llvm_client.cc
+noinst_LIBRARIES += libcls_llvm_client.a
 
 noinst_HEADERS += \
 	cls/lock/cls_lock_types.h \
@@ -118,5 +129,7 @@ noinst_HEADERS += \
 	cls/replica_log/cls_replica_log_client.h \
 	cls/rgw/cls_rgw_client.h \
 	cls/rgw/cls_rgw_ops.h \
-	cls/rgw/cls_rgw_types.h
+	cls/rgw/cls_rgw_types.h \
+	cls/llvm/cls_llvm_ops.h \
+	cls/llvm/cls_llvm_client.h
 
