@@ -11,4 +11,8 @@ void cls_llvm_eval(librados::ObjectWriteOperation& op, const bufferlist& bitcode
 int cls_llvm_eval(librados::IoCtx& ioctx, const string& oid,
     const bufferlist& bitcode, const string& function, const bufferlist& input);
 
+int cls_llvm_exec(librados::IoCtx& ioctx, const string& oid,
+		  const bufferlist& bitcode, const string& function, 
+		  const bufferlist& input, bufferlist& output, vector<string> *log);
+
 #endif

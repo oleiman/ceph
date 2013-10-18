@@ -7,6 +7,8 @@
 #include <llvm/ADT/OwningPtr.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/ExecutionEngine/JIT.h>
+#include <llvm/ExecutionEngine/GenericValue.h>
+#include <llvm/Type.h>
 
 #include "common/Mutex.h"
 #include "objclass/objclass.h"
@@ -20,6 +22,11 @@ cls_method_handle_t h_eval;
 
 static int llvm_initialized;
 static Mutex cls_llvm_lock("cls_llvm_lock");
+
+struct cls_llvm_eval_err {
+   bool error;
+   int ret;
+};
 
 /*
  * Initialize LLVM
@@ -46,11 +53,22 @@ static int llvm_initialize(void)
 static int eval(cls_method_context_t hctx, bufferlist *in, bufferlist *out)
 {
   cls_llvm_eval_op op;
+  cls_llvm_eval_reply reply;
+  cls_llvm_eval_err err;
+  err.error = false;
+  err.ret   = -1;
+  vector<string> ins;
+
   try {
     bufferlist::iterator it = in->begin();
     ::decode(op, it);
-  } catch (buffer::error& err) {
+    bufferlist::iterator inbl = op.input.begin();
+    ::decode(ins, inbl);
+  } catch (buffer::error& e) {
     CLS_LOG(1, "ERROR: cls_llvm_eval_op(): failed to decode op");
+    // reply.log.push_back("ERROR: cls_llvm_eval_op(): failed to decode op");
+    // err.error = true;
+    // err.ret = -EINVAL;
     return -EINVAL;
   }
 
@@ -66,6 +84,19 @@ static int eval(cls_method_context_t hctx, bufferlist *in, bufferlist *out)
    */
   llvm::StringRef bc_str(op.bitcode.c_str(), op.bitcode.length());
   llvm::OwningPtr<llvm::MemoryBuffer> buf(llvm::MemoryBuffer::getMemBufferCopy(bc_str));
+
+  /*
+   * Move the named function arguments into llvm::GenericValue
+   * wrappers
+   * TODO: find a way to have heterogeneous arglists (just char*'s now)
+   */
+  vector<llvm::GenericValue> args;
+  vector<string>::iterator iter = ins.begin();
+  vector<string>::iterator end  = ins.end();
+  while (iter != end) {
+     args.push_back(llvm::GenericValue((void*) &(*iter)));
+     ++iter;
+  }
 
   /*
    * Parse the input bitcode.
@@ -85,15 +116,30 @@ static int eval(cls_method_context_t hctx, bufferlist *in, bufferlist *out)
     return -EINVAL;
   }
 
-  typedef int (*PFN)();
-  PFN pfn = reinterpret_cast<PFN>(ee->getPointerToFunction(function));
-  ret = pfn();
+  llvm::Type *retType = function->getReturnType();
+  llvm::GenericValue rv = ee->runFunction(function, args);
+  
 
-  CLS_LOG(0, "return value: %d", ret);
+  if (retType->isPointerTy()) {
+    reply.output.append(string((char*)rv.PointerVal));
+  } else {
+    reply.output.append(rv.IntVal.toString(10, true));
+    err.ret = rv.IntVal.roundToDouble(true);
+  }
+    
+  // ::encode(rv.IntVal.toString(10, true), reply.output);
+
+// out:
+  CLS_LOG(0, "return value: %d", err.ret);
+  char rvmsg[32];
+  sprintf(rvmsg, "return value: %d\0", err.ret);
+  reply.log.push_back(rvmsg);
+  ::encode(reply, *out);
 
   delete ee;
 
-  return 0;
+  if (err.error) return err.ret;
+  else return 0;
 }
 
 void __cls_init()
