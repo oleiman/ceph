@@ -3,6 +3,8 @@
 
 #include "include/types.h"
 
+typedef int (*cls_llvm_eval_func) (bufferlist *in, bufferlist *out);
+
 struct cls_llvm_eval_op {
   bufferlist bitcode;
   string function;

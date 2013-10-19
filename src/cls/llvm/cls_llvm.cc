@@ -28,6 +28,22 @@ struct cls_llvm_eval_err {
    int ret;
 };
 
+struct cls_llvm_eval_ctx {
+  cls_llvm_eval_op op;
+  cls_llvm_eval_reply reply;
+  cls_llvm_eval_err err;
+  cls_llvm_eval_func pfn;
+  cls_method_context_t hctx;
+  cls_llvm_eval_ctx() {
+    err.error = false;
+    err.ret = 0;
+  }
+  cls_llvm_eval_ctx(cls_method_context_t hctx) {
+    cls_llvm_eval_ctx();
+    this->hctx = hctx;
+  }
+};
+
 /*
  * Initialize LLVM
  *
@@ -52,94 +68,109 @@ static int llvm_initialize(void)
 
 static int eval(cls_method_context_t hctx, bufferlist *in, bufferlist *out)
 {
-  cls_llvm_eval_op op;
-  cls_llvm_eval_reply reply;
-  cls_llvm_eval_err err;
-  err.error = false;
-  err.ret   = -1;
-  vector<string> ins;
 
+  /*
+   * the evaluation context
+   */
+  cls_llvm_eval_ctx ctx(hctx);
+
+  /*
+   * random memory we'll need later
+   */
+  int ret;
+  string error;
+  char msgbuf[64];
+
+  /*
+   * Instantiate some llvm data structures for the JIT
+   */
+  llvm::StringRef bc_str;
+  llvm::MemoryBuffer *buf;
+  llvm::LLVMContext context;
+  llvm::Module *module;
+  llvm::ExecutionEngine *ee;
+  llvm::Function *function;
+
+  /*
+   * Decode the input bufferlist, logging errors both in Ceph
+   * and in the reply.
+   */
   try {
     bufferlist::iterator it = in->begin();
-    ::decode(op, it);
-    bufferlist::iterator inbl = op.input.begin();
-    ::decode(ins, inbl);
+    ::decode(ctx.op, it);
   } catch (buffer::error& e) {
     CLS_LOG(1, "ERROR: cls_llvm_eval_op(): failed to decode op");
-    // reply.log.push_back("ERROR: cls_llvm_eval_op(): failed to decode op");
-    // err.error = true;
-    // err.ret = -EINVAL;
-    return -EINVAL;
+    ctx.reply.log.push_back("ERROR: cls_llvm_eval_op(): failed to decode op");
+    ctx.err.error = true;
+    ctx.err.ret = -EINVAL;
+    goto out;
   }
 
-  int ret = llvm_initialize();
+  /*
+   * Initialize llvm. Again loggin errors in both places.
+   */
+  ret = llvm_initialize();
   if (ret) {
     CLS_LOG(1, "ERROR: llvm_initialize(): failed to init ret=%d", ret);
-    return ret;
+    sprintf(msgbuf, "ERROR: llvm_initialize(): failed to init ret=%d", ret);
+    ctx.reply.log.push_back(msgbuf);
+    ctx.err.error = true;
+    ctx.err.ret = ret;
+    goto out;
   }
 
   /*
    * Move the operation bitcode into LLVM data structures.
    * TODO: check return values. buf.get() != 0 ?
+   * ^^ not sure this is necessary. I don't think there's much going
+   * on under the hood besides creating the MemoryBuffer.
    */
-  llvm::StringRef bc_str(op.bitcode.c_str(), op.bitcode.length());
-  llvm::OwningPtr<llvm::MemoryBuffer> buf(llvm::MemoryBuffer::getMemBufferCopy(bc_str));
-
-  /*
-   * Move the named function arguments into llvm::GenericValue
-   * wrappers
-   * TODO: find a way to have heterogeneous arglists (just char*'s now)
-   */
-  vector<llvm::GenericValue> args;
-  vector<string>::iterator iter = ins.begin();
-  vector<string>::iterator end  = ins.end();
-  while (iter != end) {
-     args.push_back(llvm::GenericValue((void*) &(*iter)));
-     ++iter;
-  }
+  bc_str = llvm::StringRef(ctx.op.bitcode.c_str(), ctx.op.bitcode.length());
+  buf = llvm::MemoryBuffer::getMemBufferCopy(bc_str);
 
   /*
    * Parse the input bitcode.
    */
-  string error;
-  llvm::LLVMContext context;
-  llvm::Module *module = llvm::ParseBitcodeFile(buf.get(), context, &error);
+  module = llvm::ParseBitcodeFile(buf, context, &error);
   if (!module) {
     CLS_LOG(1, "ERROR: could not parse input bitcode: %s", error.c_str());
-    return -EINVAL;
+    sprintf(msgbuf, "ERROR: could not parse input bitcode: %s", error.c_str());
+    ctx.reply.log.push_back(msgbuf);
+    ctx.err.error = true;
+    ctx.err.ret = -EINVAL;
+    goto out;
   }
 
-  llvm::ExecutionEngine *ee = llvm::ExecutionEngine::create(module);
-  llvm::Function* function = ee->FindFunctionNamed(op.function.c_str());
+  /*
+   * Create the JIT and find the named function in the input bitcode.
+   */
+  ee = llvm::ExecutionEngine::create(module);
+  function = ee->FindFunctionNamed(ctx.op.function.c_str());
   if (!function) {
-    CLS_LOG(1, "ERROR: function named `%s` not found", op.function.c_str());
-    return -EINVAL;
+    CLS_LOG(1, "ERROR: function named `%s` not found", ctx.op.function.c_str());
+    sprintf(msgbuf, "ERROR: function name `%s` not found", ctx.op.function.c_str());
+    ctx.reply.log.push_back(msgbuf);
+    ctx.err.error = true;
+    ctx.err.ret = -EINVAL;
+    goto out;
   }
 
-  llvm::Type *retType = function->getReturnType();
-  llvm::GenericValue rv = ee->runFunction(function, args);
-  
+  /*
+   * Get a pointer to the named function and call it.
+   * Log the return value both with the OSD and the reply.
+   */
+  ctx.pfn = reinterpret_cast<cls_llvm_eval_func>(ee->getPointerToFunction(function));
+  ret = ctx.pfn(&(ctx.op.input), &(ctx.reply.output));
 
-  if (retType->isPointerTy()) {
-    reply.output.append(string((char*)rv.PointerVal));
-  } else {
-    reply.output.append(rv.IntVal.toString(10, true));
-    err.ret = rv.IntVal.roundToDouble(true);
-  }
-    
-  // ::encode(rv.IntVal.toString(10, true), reply.output);
-
-// out:
-  CLS_LOG(0, "return value: %d", err.ret);
-  char rvmsg[32];
-  sprintf(rvmsg, "return value: %d\0", err.ret);
-  reply.log.push_back(rvmsg);
-  ::encode(reply, *out);
+  CLS_LOG(0, "return value: %d", ret);
+  sprintf(msgbuf, "return value: %d", ret);
+  ctx.reply.log.push_back(msgbuf);
 
   delete ee;
 
-  if (err.error) return err.ret;
-  else return 0;
+out:
+  ::encode(ctx.reply, *out);
+  return ctx.err.ret;
 }
 
 void __cls_init()

@@ -2,22 +2,21 @@
 #include <string.h>
 #include <string>
 
+#include "rados/buffer.h"
+
 using namespace std;
+using namespace ceph;
 
 /*
  * This file is compiled into LLVM IR.
  */
 extern "C" {
 
-int log(void) 
-{
-   return -5;
-}
-
-char *retStr(string name)
-{
-  printf("Hello, %s, your number is\n", name.c_str());
-  return strcat("Hello, ", name.c_str());
-}
+  int retStr(bufferlist *in, bufferlist *out)
+  {
+    bufferptr obp(in->c_str(), 12);
+    out->push_back(obp);
+    return 0;
+  }
 
 }
