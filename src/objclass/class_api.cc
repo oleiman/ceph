@@ -163,7 +163,7 @@ int cls_read(cls_method_context_t hctx, int ofs, int len,
   int r = (*pctx)->pg->do_osd_ops(*pctx, ops);
 
   *outdata = (char *)malloc(ops[0].outdata.length());
-  if (!*outdata)
+  if (*outdata == NULL)
     return -ENOMEM;
   memcpy(*outdata, ops[0].outdata.c_str(), ops[0].outdata.length());
   *outdatalen = ops[0].outdata.length();
@@ -172,6 +172,112 @@ int cls_read(cls_method_context_t hctx, int ofs, int len,
     return r;
 
   return *outdatalen;
+}
+
+int cls_write(cls_method_context_t hctx, int ofs, 
+	      int len, char *indata)
+{
+  ReplicatedPG::OpContext **pctx = (ReplicatedPG::OpContext **)hctx;
+  vector<OSDOp> ops(1);
+  ops[0].op.op = CEPH_OSD_OP_WRITE;
+  ops[0].op.extent.offset = ofs;
+  ops[0].op.extent.length = len;
+  ops[0].indata.append(indata, len);
+  return (*pctx)->pg->do_osd_ops(*pctx, ops);;
+}
+
+int cls_create(cls_method_context_t hctx, int exclusive)
+{
+  ReplicatedPG::OpContext **pctx = (ReplicatedPG::OpContext **)hctx;
+  vector<OSDOp> ops(1);
+  ops[0].op.op = CEPH_OSD_OP_CREATE;
+  ops[0].op.flags = (exclusive != 0 ? CEPH_OSD_OP_FLAG_EXCL : 0);
+  return (*pctx)->pg->do_osd_ops(*pctx, ops);
+}
+
+int cls_stat(cls_method_context_t hctx, uint64_t *size, time_t *mtime)
+{
+  ReplicatedPG::OpContext **pctx = (ReplicatedPG::OpContext **)hctx;
+  vector<OSDOp> ops(1);
+  int ret;
+  ops[0].op.op = CEPH_OSD_OP_STAT;
+  ret = (*pctx)->pg->do_osd_ops(*pctx, ops);
+  if (ret < 0)
+    return ret;
+
+  bufferlist::iterator iter = ops[0].outdata.begin();
+  utime_t ut;
+  uint64_t s;
+  try {
+    ::decode(s, iter);
+    ::decode(ut, iter);
+  } catch (buffer::error& err) {
+    return -EIO;
+  }
+  if (size)
+    *size = s;
+  if (mtime)
+    *mtime = ut.sec();
+  return 0;
+}
+
+int cls_map_get_val(cls_method_context_t hctx, const char *key,
+		    char **outdata, int *outdatalen)
+{
+  ReplicatedPG::OpContext **pctx = (ReplicatedPG::OpContext **)hctx;
+  vector<OSDOp> ops(1);
+  OSDOp& op = ops[0];
+  int ret;
+
+  set<string> k;
+  k.insert(string(key));
+  ::encode(k, op.indata);
+
+  op.op.op = CEPH_OSD_OP_OMAPGETVALSBYKEYS;
+  ret = (*pctx)->pg->do_osd_ops(*pctx, ops);
+  if (ret < 0)
+    return ret;
+
+  map<string, bufferlist> omap;
+  bufferlist::iterator iter = op.outdata.begin();
+  ::decode(omap, iter);
+
+  *outdata = (char *)malloc(omap[string(key)].length());
+  if (*outdata == NULL)
+    return -ENOMEM;
+  memcpy(*outdata, omap[string(key)].c_str(), omap[string(key)].length());
+  *outdatalen = omap[string(key)].length();
+
+  return 0;
+}
+
+int cls_map_set_val(cls_method_context_t hctx, const char *key,
+		    char *indata, int len)
+{
+  ReplicatedPG::OpContext **pctx = (ReplicatedPG::OpContext **)hctx;
+  vector<OSDOp> ops(1);
+  OSDOp& op = ops[0];
+  bufferlist& update_bl = op.indata;
+  bufferlist *inbl = new bufferlist();
+  inbl->append(indata, len);
+  map<string, bufferlist> m;
+  m[string(key)] = *inbl;
+  ::encode(m, update_bl);
+
+  op.op.op = CEPH_OSD_OP_OMAPSETVALS;
+
+  return (*pctx)->pg->do_osd_ops(*pctx, ops);
+}
+
+int cls_map_clear(cls_method_context_t hctx)
+{
+  ReplicatedPG::OpContext **pctx = (ReplicatedPG::OpContext **)hctx;
+  vector<OSDOp> ops(1);
+  OSDOp& op = ops[0];
+
+  op.op.op = CEPH_OSD_OP_OMAPCLEAR;
+
+  return (*pctx)->pg->do_osd_ops(*pctx, ops);
 }
 
 int cls_get_request_origin(cls_method_context_t hctx, entity_inst_t *origin)

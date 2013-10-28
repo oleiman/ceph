@@ -51,9 +51,26 @@ extern void cls_free(void *p);
 
 extern int cls_read(cls_method_context_t hctx, int ofs, int len,
                                  char **outdata, int *outdatalen);
+
+extern int cls_write(cls_method_context_t hctx, int ofs, 
+		     int len, char *indata);
+
+extern int cls_create(cls_method_context_t hctx, int exclusive);
+
+extern int  cls_stat(cls_method_context_t hctx, uint64_t *size, time_t *mtime);
+
 extern int cls_call(cls_method_context_t hctx, const char *cls, const char *method,
                                  char *indata, int datalen,
                                  char **outdata, int *outdatalen);
+
+extern int cls_map_get_val(cls_method_context_t hctx, const char *key, 
+			   char **outdata, int *outdatalen);
+
+extern int cls_map_set_val(cls_method_context_t hctx, const char *key,
+			   char *indata, int len);
+
+extern int cls_map_clear(cls_method_context_t hctx);
+  
 extern int cls_getxattr(cls_method_context_t hctx, const char *name,
                                  char **outdata, int *outdatalen);
 extern int cls_setxattr(cls_method_context_t hctx, const char *name,
