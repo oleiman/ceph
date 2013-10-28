@@ -9,6 +9,7 @@
 #include <llvm/ExecutionEngine/JIT.h>
 #include <llvm/ExecutionEngine/GenericValue.h>
 #include <llvm/Type.h>
+#include <llvm/Linker.h>
 
 #include "common/Mutex.h"
 #include "objclass/objclass.h"
@@ -38,6 +39,7 @@ struct cls_llvm_eval_ctx {
     err.error = false;
     err.ret = 0;
   }
+
   cls_llvm_eval_ctx(cls_method_context_t hctx) {
     cls_llvm_eval_ctx();
     this->hctx = hctx;
@@ -58,8 +60,13 @@ static int llvm_initialize(void)
   if (llvm_initialized)
     return 0;
 
-  /* TODO: check return values here */
-  llvm::llvm_start_multithreaded();
+  bool result = llvm::llvm_start_multithreaded();
+  if (result) {
+    CLS_LOG(0, "Multithreaded mode successfully enabled in LLVM, global lock set");
+  } else {
+    CLS_LOG(0, "LLVM threads disabled, multithreaded mode could not be enabled");
+  }
+    
   llvm::InitializeNativeTarget();
 
   llvm_initialized = 1;
@@ -99,7 +106,7 @@ static int eval(cls_method_context_t hctx, bufferlist *in, bufferlist *out)
     bufferlist::iterator it = in->begin();
     ::decode(ctx.op, it);
   } catch (buffer::error& e) {
-    CLS_LOG(1, "ERROR: cls_llvm_eval_op(): failed to decode op");
+    CLS_LOG(0, "ERROR: cls_llvm_eval_op(): failed to decode op");
     ctx.reply.log.push_back("ERROR: cls_llvm_eval_op(): failed to decode op");
     ctx.err.error = true;
     ctx.err.ret = -EINVAL;
@@ -111,7 +118,7 @@ static int eval(cls_method_context_t hctx, bufferlist *in, bufferlist *out)
    */
   ret = llvm_initialize();
   if (ret) {
-    CLS_LOG(1, "ERROR: llvm_initialize(): failed to init ret=%d", ret);
+    CLS_LOG(0, "ERROR: llvm_initialize(): failed to init ret=%d", ret);
     sprintf(msgbuf, "ERROR: llvm_initialize(): failed to init ret=%d", ret);
     ctx.reply.log.push_back(msgbuf);
     ctx.err.error = true;
@@ -133,7 +140,7 @@ static int eval(cls_method_context_t hctx, bufferlist *in, bufferlist *out)
    */
   module = llvm::ParseBitcodeFile(buf, context, &error);
   if (!module) {
-    CLS_LOG(1, "ERROR: could not parse input bitcode: %s", error.c_str());
+    CLS_LOG(0, "ERROR: could not parse input bitcode: %s", error.c_str());
     sprintf(msgbuf, "ERROR: could not parse input bitcode: %s", error.c_str());
     ctx.reply.log.push_back(msgbuf);
     ctx.err.error = true;
@@ -147,7 +154,7 @@ static int eval(cls_method_context_t hctx, bufferlist *in, bufferlist *out)
   ee = llvm::ExecutionEngine::create(module);
   function = ee->FindFunctionNamed(ctx.op.function.c_str());
   if (!function) {
-    CLS_LOG(1, "ERROR: function named `%s` not found", ctx.op.function.c_str());
+    CLS_LOG(0, "ERROR: function named `%s` not found", ctx.op.function.c_str());
     sprintf(msgbuf, "ERROR: function name `%s` not found", ctx.op.function.c_str());
     ctx.reply.log.push_back(msgbuf);
     ctx.err.error = true;
@@ -160,7 +167,10 @@ static int eval(cls_method_context_t hctx, bufferlist *in, bufferlist *out)
    * Log the return value both with the OSD and the reply.
    */
   ctx.pfn = reinterpret_cast<cls_llvm_eval_func>(ee->getPointerToFunction(function));
-  ret = ctx.pfn(&(ctx.op.input), &(ctx.reply.output));
+  CLS_LOG(0, "found the function!");
+
+  ret = ctx.pfn(ctx.hctx, &(ctx.op.input), &(ctx.reply.output));
+  CLS_LOG(0, "we did it!! %s", ctx.reply.output.c_str());  
 
   CLS_LOG(0, "return value: %d", ret);
   sprintf(msgbuf, "return value: %d", ret);
@@ -168,9 +178,13 @@ static int eval(cls_method_context_t hctx, bufferlist *in, bufferlist *out)
 
   delete ee;
 
+  ::encode(ctx.reply, *out);
+  return ret;
+
 out:
   ::encode(ctx.reply, *out);
   return ctx.err.ret;
+  
 }
 
 void __cls_init()

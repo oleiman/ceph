@@ -2,8 +2,9 @@
 #define CEPH_CLS_LLVMJIT_OPS_H
 
 #include "include/types.h"
+#include "objclass/objclass.h"
 
-typedef int (*cls_llvm_eval_func) (bufferlist *in, bufferlist *out);
+typedef int (*cls_llvm_eval_func) (cls_method_context_t hctx, bufferlist *in, bufferlist *out);
 
 struct cls_llvm_eval_op {
   bufferlist bitcode;
