@@ -1,0 +1,8 @@
+message StatRet {
+  required int64 size = 1;
+  required int64 mtime = 2;
+}
+
+message StringArg {
+  required string s = 1;
+}

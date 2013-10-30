@@ -4,6 +4,7 @@
 #include <string>
 
 #include "rados/buffer.h"
+#include "cls_llvm_test.pb-c.h"
 
 using namespace std;
 using namespace ceph;
@@ -43,7 +44,7 @@ extern "C" {
     int datalen; 
     int ret = cls_read(hctx, 0, in->length(), &buf, &datalen);
     out->append(strdup(buf), datalen);
-    return datalen;
+    return ret;
   }
 
   int create_c(void *hctx, bufferlist *in, bufferlist *out)
@@ -63,15 +64,22 @@ extern "C" {
     int ret;
     ret = cls_stat(hctx, &size, &time);
 
-    /* TODO: serialize (size, time) pair into protocol buffer here */
-    // cls_llvm_test::StatRet result;
-    // string result_s;
+    /*
+     * Instantiate the protocol buffer to hold the structured
+     * stat response
+     */
+    StatRet sr = STAT_RET__INIT;
+    sr.size = size;
+    sr.mtime = time;
+    size_t len = stat_ret__get_packed_size(&sr);
 
-    // result.set_size((::google::protobuf::int64) size);
-    // result.set_mtime((::google::protobuf::int64) time);
-    // result.SerializeToString(&result_s);
-    // bufferptr bp(result_s.c_str(), result_s.length());
-    // out->push_back(bp);
+    /*
+     * Pack the protocol buffer into raw bytes
+     * Append those bytes to the return bufferlist
+     */
+    void *buf = malloc(len);
+    stat_ret__pack(&sr, (uint8_t*) buf);
+    out->append((char*) buf, len);
     
     return ret;
   }
@@ -101,7 +109,6 @@ extern "C" {
 
   int map_set_val_foo(void *hctx, bufferlist *in, bufferlist *out)
   {
-    cls_log(0, "loggin from da %s", in->c_str());
     return cls_map_set_val(hctx, "foo", in->c_str(), in->length());
   }
 

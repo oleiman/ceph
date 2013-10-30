@@ -653,8 +653,17 @@ ceph_test_cls_log_CXXFLAGS = $(UNITTEST_CXXFLAGS)
 bin_DEBUGPROGRAMS += ceph_test_cls_log
 
 CLANG=clang
+PROTOBUF_LIBS=-lprotobuf-c
 LLVM_TEST_C=test/cls_llvm/test_lib.cc
+LLVM_TEST_PB = test/cls_llvm/cls_llvm_test.proto
+LLVM_TEST_PB_H = test/cls_llvm/cls_llvm_test.pb-c.h
+LLVM_TEST_PB_C = test/cls_llvm/cls_llvm_test.pb-c.c
+LLVM_TEST_PB_GEN = $(LLVM_TEST_PB_H) $(LLVM_TEST_PB_C)
+
+LLVM_TEST_PB_BC = test/cls_llvm/cls_llvm_test.pb-c.bc
 LLVM_TEST_BC=test/cls_llvm/test_lib.bc
+LLVM_TEST_LIB_BC=test/cls_llvm/test_lib_pre.bc
+
 LLVM_TEST_H=test/cls_llvm/test_lib.h
 
 EXTRA_DIST += $(LLVM_TEST_C)
@@ -667,14 +676,24 @@ noinst_PROGRAMS += txt2str
 $(LLVM_TEST_H): $(LLVM_TEST_BC) txt2str
 	$(top_builddir)/src/txt2str cls_llvm_test_lib < $(LLVM_TEST_BC) > $@
 
-$(LLVM_TEST_BC): $(LLVM_TEST_C)
+$(LLVM_TEST_BC): $(LLVM_TEST_LIB_BC) $(LLVM_TEST_PB_BC)
+	llvm-link $(LLVM_TEST_PB_BC) $(LLVM_TEST_LIB_BC) -o $(LLVM_TEST_BC)
+
+$(LLVM_TEST_LIB_BC): $(LLVM_TEST_C) $(LLVM_TEST_PB_GEN)
 	$(CLANG) -Wall -emit-llvm -c $< -o $@
+
+$(LLVM_TEST_PB_BC): $(LLVM_TEST_PB_GEN)
+	$(CLANG) -I. -Wall -emit-llvm -c test/cls_llvm/cls_llvm_test.pb-c.c -o $@
+
+$(LLVM_TEST_PB_GEN): $(LLVM_TEST_PB)
+	protoc-c --c_out=. $(LLVM_TEST_PB)
 
 ceph_test_cls_llvm_SOURCES = \
 	test/cls_llvm/test_cls_llvm.cc \
+	test/cls_llvm/cls_llvm_test.pb-c.c \
 	test/librados/test.cc \
 	$(LLVM_TEST_H)
-ceph_test_cls_llvm_LDADD = $(LIBRADOS) libcls_llvm_client.a $(UNITTEST_LDADD) $(CEPH_GLOBAL)
+ceph_test_cls_llvm_LDADD = $(LIBRADOS) libcls_llvm_client.a $(UNITTEST_LDADD) $(PROTOBUF_LIBS) $(CEPH_GLOBAL)
 ceph_test_cls_llvm_CXXFLAGS = $(UNITTEST_CXXFLAGS)
 bin_DEBUGPROGRAMS += ceph_test_cls_llvm
 

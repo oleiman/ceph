@@ -2,7 +2,7 @@
 
 export PYTHONPATH=./pybind
 export LD_LIBRARY_PATH=.libs
-
+export LD_PRELOAD=/usr/lib/libprotobuf-c.so
 
 # abort on failure
 set -e
@@ -575,4 +575,5 @@ echo "started.  stop.sh to stop.  see out/* (e.g. 'tail -f out/????') for debug 
 echo ""
 echo "export PYTHONPATH=./pybind"
 echo "export LD_LIBRARY_PATH=.libs"
+echo "export LD_PRELOAD=/usr/lib/libprotobuf-c.so"
 

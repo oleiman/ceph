@@ -50,6 +50,10 @@ int cls_llvm_exec(librados::IoCtx& ioctx, const string &oid,
    if (!outbl.is_zero()) {
      bufferlist::iterator iter = outbl.begin();
      ::decode(reply, iter);
+     // TODO: this is pretty wonky, but is the only way I can see to
+     //       to copy the bl from the reply into the reference passed
+     //       to cls_llvm_exec
+     
      ::encode(reply.output, output);
    }
    

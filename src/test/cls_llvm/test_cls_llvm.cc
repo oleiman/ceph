@@ -1,20 +1,15 @@
 #include <errno.h>
+#include <msgpack.h>
+
 #include "gtest/gtest.h"
 #include "test/librados/test.h"
 #include "include/rados/librados.h"
 
 #include "include/types.h"
 #include "cls/llvm/cls_llvm_client.h"
+#include "cls_llvm_test.pb-c.h"
 
 #include "test_lib.h"
-#include "test/cls_llvm/cls_llvm_test.pb.h"
-
-static string test_lib;
-
-// TODO: oleiman - notice that some of these tests are less meaningful
-//    than desired on account of not having chosen a serialization
-//    format. E.g. I'd like my stat_ret function to return some
-//    structured data. Protobuf has been a hassle, considering msgpack
 
 class ClsLLVM : public ::testing::Test {
   
@@ -23,9 +18,6 @@ class ClsLLVM : public ::testing::Test {
       pool_name = get_temp_pool_name();
       ASSERT_EQ("", create_one_pool_pp(pool_name, rados));
       ASSERT_EQ(0, rados.ioctx_create(pool_name.c_str(), ioctx));
-
-      /* auto-generated from test_script.lua */
-      test_lib.assign(string(cls_llvm_test_lib));
     }
 
     static void TearDownTestCase() {
@@ -101,13 +93,13 @@ TEST_F(ClsLLVM, Write)
 
   ASSERT_EQ(0, cls_llvm_exec(ioctx, oid, bitcode, "Write", inbl, reply_output, &rlog));
 
-  /* have Lua read out of the object */
+  /* read out of the object */
   uint64_t size;
   bufferlist outbl;
   ASSERT_EQ(0, ioctx.stat(oid, &size, NULL));
   ASSERT_EQ(size, (uint64_t)ioctx.read(oid, outbl, size, 0) );
 
-  /* compare what Lua read to what we wrote */
+  /* compare what was read to what we wrote */
   string read;
   ::decode(read, outbl);
   ASSERT_EQ(read, written);
@@ -131,7 +123,7 @@ TEST_F(ClsLLVM, Stat)
   /* build object and stat */
   char buf[1024];
   vector<string> rlog;
-  bufferlist bl, inbl;
+  bufferlist bl, inbl, msg, outbl;
 
   bl.append(buf, sizeof(buf));
   ASSERT_EQ(0, ioctx.write_full(oid, bl));
@@ -140,24 +132,21 @@ TEST_F(ClsLLVM, Stat)
   ASSERT_EQ(0, ioctx.stat(oid, &size, &mtime));
 
   /* test stat success */
-  ASSERT_EQ(0, cls_llvm_exec(ioctx, oid, bitcode, "stat_ret", inbl, reply_output, &rlog));
-
-  // ClsLlvmTest__StatRet sr = CLS_LLVM_TEST__STAT_RET__INIT;
-  // sr.size = 23;
-  // sr.mtime = 42;
-  // size_t len = cls_llvm_test__stat_ret__get_packed_size(&sr);
-  // void *secondbuf = malloc(len);
-  // cls_llvm_test__stat_ret__pack(&sr, (uint8_t *) secondbuf);
-
-  /* TODO: unpack protobuf here */
-  // cls_llvm_test::StatRet stat_result;
-  // string reply_data;
-  // reply_data.assign(string(reply_output.c_str()));
   
-  // stat_result.ParseFromString(reply_data);
+  ASSERT_EQ(0, cls_llvm_exec(ioctx, oid, bitcode, "stat_ret", inbl, outbl, &rlog));
+
+  bufferlist::iterator iter = outbl.begin();
+  ::decode(msg, iter);
+  
+  StatRet *sr; 
+  sr = stat_ret__unpack(NULL, msg.length(), (uint8_t*) msg.c_str());
+  
+  ASSERT_EQ(size, (uint64_t) sr->size);
+
+  stat_ret__free_unpacked(sr, NULL);
 
   /* test object dne */
-  ASSERT_EQ(-ENOENT, cls_llvm_exec(ioctx, "dne", bitcode, "stat_dne", inbl, reply_output, &rlog));
+  ASSERT_EQ(-ENOENT, cls_llvm_exec(ioctx, "dne", bitcode, "stat_dne", inbl, outbl, &rlog));
 }
 
 TEST_F(ClsLLVM, Read) {
@@ -207,7 +196,7 @@ TEST_F(ClsLLVM, MapSetVal) {
   vector<string> rlog;
   ::encode("this is the original value yay", orig_val);
 
-  /* have the lua script stuff the data into a map value */
+  /* stuff the data into a map value in c++ handler*/
   ASSERT_EQ(0, cls_llvm_exec(ioctx, oid, bitcode, "map_set_val_foo", orig_val, outbl, &rlog));
 
   /* grap the key now and compare to orig */
