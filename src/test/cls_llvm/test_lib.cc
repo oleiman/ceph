@@ -33,8 +33,6 @@ extern "C" {
 
   int Write(void *hctx, bufferlist *in, bufferlist *out)
   {
-    char *indata;
-    indata = strdup(in->c_str());
     return cls_write(hctx, 0, in->length(), in->c_str());
   }
 
@@ -43,7 +41,7 @@ extern "C" {
     char *buf; 
     int datalen; 
     int ret = cls_read(hctx, 0, in->length(), &buf, &datalen);
-    out->append(strdup(buf), datalen);
+    out->append(buf, datalen);
     return ret;
   }
 

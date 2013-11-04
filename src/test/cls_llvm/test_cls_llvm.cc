@@ -74,8 +74,7 @@ TEST_F(ClsLLVM, ReturnStringArg)
 
   ASSERT_EQ(0, cls_llvm_exec(ioctx, oid, bitcode, "retStr", input, output, &rlog));
 
-  bufferlist::iterator iter = output.begin();
-  ::decode(result, iter);
+  result.assign(string(output.c_str()));
   
   ASSERT_EQ(0, ret);
   
@@ -89,8 +88,8 @@ TEST_F(ClsLLVM, Write)
   vector<string> rlog;
   bufferlist inbl;
   string written = "Hello World";
-  ::encode(written, inbl);
-
+  inbl.append(written.data(), written.length());
+  
   ASSERT_EQ(0, cls_llvm_exec(ioctx, oid, bitcode, "Write", inbl, reply_output, &rlog));
 
   /* read out of the object */
@@ -99,9 +98,10 @@ TEST_F(ClsLLVM, Write)
   ASSERT_EQ(0, ioctx.stat(oid, &size, NULL));
   ASSERT_EQ(size, (uint64_t)ioctx.read(oid, outbl, size, 0) );
 
-  /* compare what was read to what we wrote */
+  // compare what was read to what we wrote
   string read;
-  ::decode(read, outbl);
+  outbl.copy(0, outbl.length(), read);
+  
   ASSERT_EQ(read, written);
 }
 
@@ -134,11 +134,9 @@ TEST_F(ClsLLVM, Stat)
   /* test stat success */
   
   ASSERT_EQ(0, cls_llvm_exec(ioctx, oid, bitcode, "stat_ret", inbl, outbl, &rlog));
-
-  bufferlist::iterator iter = outbl.begin();
-  ::decode(msg, iter);
   
-  StatRet *sr; 
+  StatRet *sr;
+  outbl.copy(0, outbl.length(), msg);
   sr = stat_ret__unpack(NULL, msg.length(), (uint8_t*) msg.c_str());
   
   ASSERT_EQ(size, (uint64_t) sr->size);
@@ -160,9 +158,7 @@ TEST_F(ClsLLVM, Read) {
   ASSERT_EQ(msg.length(), (size_t) cls_llvm_exec(ioctx, oid, bitcode, "Read", bl, outbl, &rlog));
 
   /* check return */
-  string ret_val;
-  bufferlist::iterator iter = outbl.begin();
-  ::decode(ret_val, iter);
+  string ret_val(outbl.c_str());
   ASSERT_EQ("This is a test message", ret_val);
 }
 
@@ -181,9 +177,7 @@ TEST_F(ClsLLVM, MapGetVal) {
   ASSERT_EQ(0, cls_llvm_exec(ioctx, oid, bitcode, "map_get_val_foo", bl, outbl, &rlog));
 
   /* check return */
-  string ret_val;
-  bufferlist::iterator iter = outbl.begin();
-  ::decode(ret_val, iter);
+  string ret_val(outbl.c_str());
   ASSERT_EQ(ret_val, msg);
 
   /* error case */
@@ -194,19 +188,20 @@ TEST_F(ClsLLVM, MapSetVal) {
   /* build some input value */
   bufferlist orig_val, outbl;
   vector<string> rlog;
-  ::encode("this is the original value yay", orig_val);
+  string in_val = "this is the original value yay";
+  orig_val.append(in_val.data(), in_val.length());
 
   /* stuff the data into a map value in c++ handler*/
   ASSERT_EQ(0, cls_llvm_exec(ioctx, oid, bitcode, "map_set_val_foo", orig_val, outbl, &rlog));
 
-  /* grap the key now and compare to orig */
+  /* grab the key now and compare to orig */
   map<string, bufferlist> out_map;
   set<string> out_keys;
   out_keys.insert("foo");
   ASSERT_EQ(0, ioctx.omap_get_vals_by_keys(oid, out_keys, &out_map));
   bufferlist val_bl = out_map["foo"];
   string out_val;
-  ::decode(out_val, val_bl);
+  val_bl.copy(0, val_bl.length(), out_val);
   ASSERT_EQ(out_val, "this is the original value yay");
 }
 
