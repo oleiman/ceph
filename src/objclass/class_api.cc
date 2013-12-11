@@ -137,14 +137,16 @@ int cls_setxattr(cls_method_context_t hctx, const char *name,
                                  const char *value, int val_len)
 {
   ReplicatedPG::OpContext **pctx = (ReplicatedPG::OpContext **)hctx;
-  bufferlist name_data;
+  bufferlist val_data;
+  val_data.append(value, val_len);
+
   vector<OSDOp> nops(1);
   OSDOp& op = nops[0];
   int r;
 
   op.op.op = CEPH_OSD_OP_SETXATTR;
   op.indata.append(name);
-  op.indata.append(value);
+  op.indata.append(val_data);
   op.op.xattr.name_len = strlen(name);
   op.op.xattr.value_len = val_len;
   r = (*pctx)->pg->do_osd_ops(*pctx, nops);
@@ -183,6 +185,30 @@ int cls_write(cls_method_context_t hctx, int ofs,
   ops[0].op.extent.offset = ofs;
   ops[0].op.extent.length = len;
   ops[0].indata.append(indata, len);
+  return (*pctx)->pg->do_osd_ops(*pctx, ops);;
+}
+
+int cls_write_bl(cls_method_context_t hctx, int ofs, 
+		 int len, bufferlist *indata)
+{
+  ReplicatedPG::OpContext **pctx = (ReplicatedPG::OpContext **)hctx;
+  vector<OSDOp> ops(1);
+  ops[0].op.op = CEPH_OSD_OP_WRITE;
+  ops[0].op.extent.offset = ofs;
+  ops[0].op.extent.length = len;
+  indata->copy(0, len, ops[0].indata);
+  return (*pctx)->pg->do_osd_ops(*pctx, ops);;
+}
+
+int cls_write_bl_full(cls_method_context_t hctx, int ofs, 
+		      bufferlist *indata)
+{
+  ReplicatedPG::OpContext **pctx = (ReplicatedPG::OpContext **)hctx;
+  vector<OSDOp> ops(1);
+  ops[0].op.op = CEPH_OSD_OP_WRITE;
+  ops[0].op.extent.offset = ofs;
+  ops[0].op.extent.length = indata->length();
+  indata->copy(0, indata->length(), ops[0].indata);
   return (*pctx)->pg->do_osd_ops(*pctx, ops);;
 }
 
@@ -267,6 +293,49 @@ int cls_map_set_val(cls_method_context_t hctx, const char *key,
   op.op.op = CEPH_OSD_OP_OMAPSETVALS;
 
   return (*pctx)->pg->do_osd_ops(*pctx, ops);
+}
+
+int cls_map_get_keys(cls_method_context_t hctx, const char *start_obj,
+		     uint64_t max_to_get, char ***keys, int **outdatalen)
+{
+  ReplicatedPG::OpContext **pctx = (ReplicatedPG::OpContext **)hctx;
+  vector<OSDOp> ops(1);
+  OSDOp& op = ops[0];
+  int ret;
+
+  ::encode(string(start_obj), op.indata);
+  ::encode(max_to_get, op.indata);
+
+  op.op.op = CEPH_OSD_OP_OMAPGETKEYS;
+
+  ret = (*pctx)->pg->do_osd_ops(*pctx, ops);
+  if (ret < 0)
+    return ret;
+
+  set<string> kset;
+  bufferlist::iterator iter = op.outdata.begin();
+  try {
+    ::decode(kset, iter);
+  } catch (buffer::error& err) {
+    return -EIO;
+  }
+
+  *keys = (char **) malloc(kset.size() * sizeof(char*));
+  *outdatalen = (int *) malloc(kset.size() * sizeof(int));
+  if (*keys == NULL || *outdatalen == NULL)
+    return -ENOMEM;
+  
+  std::set<string>::iterator it = kset.begin();
+  for (int i = 0; it != kset.end(); ++i) {
+    (*keys)[i] = (char *) malloc((*it).length());
+    if ((*keys)[i] == NULL)
+      return -ENOMEM;
+    memcpy((*keys)[i], (*it).c_str(), (*it).length());
+    (*outdatalen)[i] = (*it).length();
+    ++it;
+  }
+  
+  return kset.size();
 }
 
 int cls_map_clear(cls_method_context_t hctx)

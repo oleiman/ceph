@@ -55,6 +55,12 @@ extern int cls_read(cls_method_context_t hctx, int ofs, int len,
 extern int cls_write(cls_method_context_t hctx, int ofs, 
 		     int len, char *indata);
 
+extern int cls_write_bl(cls_method_context_t hctx, int ofs,
+			  int len, bufferlist *indata);
+
+extern int cls_write_bl_full(cls_method_context_t hctx, int ofs,
+		             bufferlist *indata);
+
 extern int cls_create(cls_method_context_t hctx, int exclusive);
 
 extern int  cls_stat(cls_method_context_t hctx, uint64_t *size, time_t *mtime);
@@ -68,6 +74,9 @@ extern int cls_map_get_val(cls_method_context_t hctx, const char *key,
 
 extern int cls_map_set_val(cls_method_context_t hctx, const char *key,
 			   char *indata, int len);
+
+extern int cls_map_get_keys(cls_method_context_t hctx, const char *start_obj,
+			    uint64_t max_to_get, char ***keys, int **outdatalen);
 
 extern int cls_map_clear(cls_method_context_t hctx);
   
